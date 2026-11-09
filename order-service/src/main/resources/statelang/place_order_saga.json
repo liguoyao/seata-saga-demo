@@ -1,0 +1,127 @@
+{
+  "Name": "placeOrderSaga",
+  "Comment": "下单 Saga：创建订单 -> 扣库存 -> 支付 -> 标记订单已支付；失败时按成功节点逆序补偿",
+  "Version": "1.0.0",
+  "StartState": "CreateOrder",
+  "IsRetryPersistModeUpdate": false,
+  "IsCompensatePersistModeUpdate": false,
+  "States": {
+    "CreateOrder": {
+      "Type": "ServiceTask",
+      "ServiceName": "orderAction",
+      "ServiceMethod": "createOrder",
+      "CompensateState": "CancelOrder",
+      "IsForUpdate": true,
+      "IsPersist": true,
+      "Input": [
+        "$.[orderNo]",
+        "$.[productId]",
+        "$.[quantity]",
+        "$.[amountCents]"
+      ],
+      "Catch": [
+        {
+          "Exceptions": ["java.lang.Throwable"],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "DeductInventory"
+    },
+    "CancelOrder": {
+      "Type": "ServiceTask",
+      "ServiceName": "orderAction",
+      "ServiceMethod": "cancelOrder",
+      "Input": ["$.[orderNo]"]
+    },
+    "DeductInventory": {
+      "Type": "ServiceTask",
+      "ServiceName": "inventoryAction",
+      "ServiceMethod": "deduct",
+      "CompensateState": "RestoreInventory",
+      "IsForUpdate": true,
+      "IsPersist": true,
+      "Input": [
+        "$.[orderNo]",
+        "$.[productId]",
+        "$.[quantity]",
+        "$.[failAt]"
+      ],
+      "Catch": [
+        {
+          "Exceptions": ["java.lang.Throwable"],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "PayOrder"
+    },
+    "RestoreInventory": {
+      "Type": "ServiceTask",
+      "ServiceName": "inventoryAction",
+      "ServiceMethod": "restore",
+      "Input": [
+        "$.[orderNo]",
+        "$.[productId]",
+        "$.[quantity]"
+      ]
+    },
+    "PayOrder": {
+      "Type": "ServiceTask",
+      "ServiceName": "paymentAction",
+      "ServiceMethod": "pay",
+      "CompensateState": "RefundPayment",
+      "IsForUpdate": true,
+      "IsPersist": true,
+      "Input": [
+        "$.[orderNo]",
+        "$.[amountCents]",
+        "$.[failAt]"
+      ],
+      "Catch": [
+        {
+          "Exceptions": ["java.lang.Throwable"],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "MarkOrderPaid"
+    },
+    "RefundPayment": {
+      "Type": "ServiceTask",
+      "ServiceName": "paymentAction",
+      "ServiceMethod": "refund",
+      "Input": [
+        "$.[orderNo]",
+        "$.[amountCents]"
+      ]
+    },
+    "MarkOrderPaid": {
+      "Type": "ServiceTask",
+      "ServiceName": "orderAction",
+      "ServiceMethod": "markPaid",
+      "IsForUpdate": true,
+      "IsPersist": true,
+      "Input": [
+        "$.[orderNo]",
+        "$.[failAt]"
+      ],
+      "Catch": [
+        {
+          "Exceptions": ["java.lang.Throwable"],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "Succeed"
+    },
+    "CompensationTrigger": {
+      "Type": "CompensationTrigger",
+      "Next": "Fail"
+    },
+    "Succeed": {
+      "Type": "Succeed"
+    },
+    "Fail": {
+      "Type": "Fail",
+      "ErrorCode": "ORDER_SAGA_FAILED",
+      "Message": "订单 Saga 执行失败，已触发逆序补偿"
+    }
+  }
+}

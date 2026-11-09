@@ -1,0 +1,105 @@
+#COMMON
+seata:
+  enabled: true
+
+  # 当前微服务名称
+  application-id: ${spring.application.name}
+
+  # 事务分组
+  tx-service-group: order_tx_group
+
+  # 注册中心：Nacos
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      group: SEATA_GROUP
+      namespace: public
+      username: nacos
+      password: nacos
+
+  # 事务分组映射到 TC 集群
+  service:
+    vgroup-mapping:
+      order_tx_group: default
+
+#AT
+seata:
+  enabled: true
+
+  # 开启自动数据源代理
+  enable-auto-data-source-proxy: true
+
+  # AT 模式
+  data-source-proxy-mode: AT
+
+
+#TCC
+seata:
+  enabled: true
+
+  # 不需要 AT 数据源自动代理
+  enable-auto-data-source-proxy: false
+
+  # 不需要配置 AT / XA 代理模式
+
+  # TCC 防悬挂、幂等辅助配置
+  tcc:
+    fence:
+      log-table-name: tcc_fence_log
+      clean-period: 1h
+
+#SAGA
+seata:
+  enabled: true
+
+  # Saga 不需要 AT 数据源代理
+  enable-auto-data-source-proxy: false
+
+  saga:
+    enabled: true
+
+    state-machine:
+      # Saga 数据库表前缀
+      table-prefix: seata_
+
+      # 是否启用异步执行
+      enable-async: false
+
+      # 状态机执行超时时间：30分钟
+      trans-operation-timeout: 1800000
+
+      # ServiceTask 调用超时时间：5分钟
+      service-invoke-timeout: 300000
+
+      # 自动扫描并注册状态机 JSON
+      auto-register-resources: true
+
+      # JSON 扫描路径
+      resources:
+        - classpath*:statelang/*.json
+
+      # 租户
+      default-tenant-id: "000001"
+
+      # 异步线程池
+      async-thread-pool:
+        core-pool-size: 1
+        max-pool-size: 20
+        keep-alive-time: 60
+
+  client:
+    rm:
+      # 是否向 TC 注册 Saga 分支
+      saga-branch-register-enable: false
+
+#XA
+seata:
+  enabled: true
+
+  # 开启数据源自动代理
+  enable-auto-data-source-proxy: true
+
+  # XA 模式
+  data-source-proxy-mode: XA

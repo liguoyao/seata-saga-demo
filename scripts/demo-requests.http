@@ -1,0 +1,58 @@
+### 正常下单成功：订单 PAID、库存减少、支付成功
+@orderNo = SAGA-{{$uuid}}
+
+POST http://127.0.0.1:8081/api/orders/checkout
+Content-Type: application/json
+
+{
+  "orderNo": "{{orderNo}}",
+  "productId": "SKU-1001",
+  "quantity": 2,
+  "amountCents": 19900,
+  "failAt": "NONE"
+}
+
+### 库存节点失败：补偿 CreateOrder -> CancelOrder
+POST http://127.0.0.1:8081/api/orders/checkout
+Content-Type: application/json
+
+{
+  "orderNo": "{{orderNo}}",
+  "productId": "SKU-1001",
+  "quantity": 2,
+  "amountCents": 19900,
+  "failAt": "INVENTORY"
+}
+
+### 支付节点失败：补偿 RestoreInventory -> CancelOrder
+POST http://127.0.0.1:8081/api/orders/checkout
+Content-Type: application/json
+
+{
+  "orderNo": "{{orderNo}}",
+  "productId": "SKU-1001",
+  "quantity": 2,
+  "amountCents": 19900,
+  "failAt": "PAYMENT"
+}
+
+### 最后订单状态更新失败：完整逆序补偿 RefundPayment -> RestoreInventory -> CancelOrder
+POST http://127.0.0.1:8081/api/orders/checkout
+Content-Type: application/json
+
+{
+  "orderNo": "{{orderNo}}",
+  "productId": "SKU-1001",
+  "quantity": 2,
+  "amountCents": 19900,
+  "failAt": "ORDER_UPDATE"
+}
+
+### 查询订单 / 库存 / 支付流水
+GET http://127.0.0.1:8081/api/orders/SAGA-20261109-HTTP-004
+
+###
+GET http://127.0.0.1:8082/api/inventory/SKU-1001
+
+###
+GET http://127.0.0.1:8083/api/payments/SAGA-20261109-HTTP-004

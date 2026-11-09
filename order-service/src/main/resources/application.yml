@@ -1,0 +1,69 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: ${ORDER_DB_URL:jdbc:mysql://47.111.16.30:13306/order_db_saga?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:Qgjh@2024}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 15
+      minimum-idle: 3
+
+app:
+  remote:
+    inventory-url: ${INVENTORY_SERVICE_URL:http://127.0.0.1:8082}
+    payment-url: ${PAYMENT_SERVICE_URL:http://127.0.0.1:8083}
+
+# Seata 2.6.0 客户端连接配置。SagaConfiguration 显式创建状态机配置以兼容 Boot 4，
+# Starter 创建 Engine/恢复协调组件，并扫描下方 resources 中的 JSON。
+seata:
+  enabled: true
+  # Saga 不需要 AT 数据源代理；订单本地事务由 Spring JDBC + DataSourceTransactionManager 管理。
+  enable-auto-data-source-proxy: false
+  application-id: order-service
+  tx-service-group: saga_demo_tx_group
+  registry:
+    type: file
+  config:
+    type: file
+  service:
+    vgroup-mapping:
+      saga_demo_tx_group: default
+    grouplist:
+      default: ${SEATA_SERVER:47.111.16.30:18091}
+  json:
+    # Seata 2.6.0 的 JDK17+ 构建支持 Jackson 3，适配 Spring Boot 4。
+    serializer-type: jackson3
+  client:
+    rm:
+      # Saga 由状态机引擎编排；本示例不使用 AT 分支注册。
+      saga-branch-register-enable: true
+  saga:
+    enabled: true
+    state-machine:
+      # 绑定到 SagaConfiguration 创建的配置 Bean；Engine 仍由 Starter 注册到恢复协调 Holder。
+      resources:
+        - classpath*:statelang/*.json
+      default-tenant-id: "000001"
+      table-prefix: seata_
+      auto-register-resources: true
+      enable-async: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.example.saga: INFO
+    org.apache.seata: INFO
+    org.springframework.jdbc.core.JdbcTemplate: INFO

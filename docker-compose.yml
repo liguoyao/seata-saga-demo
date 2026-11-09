@@ -1,0 +1,42 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: saga-demo-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_ROOT_HOST: "%"
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "3306:3306"
+    volumes:
+      - saga-mysql-data:/var/lib/mysql
+      - ./scripts/mysql-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot123456"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # 官方仓库存在 jdk21 构建标签；如果你的部署基线是 JDK25，也可替换为 2.6.0.jdk25。
+  seata-server:
+    image: apache/seata-server:2.6.0.jdk21
+    container_name: saga-demo-seata-server
+    restart: unless-stopped
+    environment:
+      SEATA_PORT: 8091
+      STORE_MODE: file
+      TZ: Asia/Shanghai
+    ports:
+      - "8091:8091"
+      - "7091:7091"
+    volumes:
+      - saga-seata-session:/seata-server/sessionStore
+
+volumes:
+  saga-mysql-data:
+  saga-seata-session:
