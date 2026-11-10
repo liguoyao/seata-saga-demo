@@ -1,0 +1,78 @@
+{
+  "Name": "faultScenarioSaga",
+  "Comment": "独立异常和补偿演示，不修改业务数据",
+  "Version": "1.0.0",
+  "StartState": "First",
+  "States": {
+    "First": {
+      "Type": "ServiceTask",
+      "ServiceName": "sagaFaultAction",
+      "ServiceMethod": "first",
+      "IsForUpdate": true,
+      "IsPersist": true,
+      "CompensateState": "UndoFirst",
+      "Input": [
+        "$.[testKey]"
+      ],
+      "Catch": [
+        {
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "Second"
+    },
+    "Second": {
+      "Type": "ServiceTask",
+      "ServiceName": "sagaFaultAction",
+      "ServiceMethod": "second",
+      "IsForUpdate": true,
+      "IsPersist": true,
+      "CompensateState": "UndoSecond",
+      "Input": [
+        "$.[testKey]",
+        "$.[scenario]"
+      ],
+      "Catch": [
+        {
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "Succeed"
+    },
+    "UndoFirst": {
+      "Type": "ServiceTask",
+      "ServiceName": "sagaFaultAction",
+      "ServiceMethod": "undoFirst",
+      "Input": [
+        "$.[testKey]",
+        "$.[scenario]"
+      ]
+    },
+    "UndoSecond": {
+      "Type": "ServiceTask",
+      "ServiceName": "sagaFaultAction",
+      "ServiceMethod": "undoSecond",
+      "Input": [
+        "$.[testKey]"
+      ]
+    },
+    "CompensationTrigger": {
+      "Type": "CompensationTrigger",
+      "Next": "Fail"
+    },
+    "Succeed": {
+      "Type": "Succeed"
+    },
+    "Fail": {
+      "Type": "Fail",
+      "ErrorCode": "FAULT_SCENARIO_FAILED",
+      "Message": "故障演示失败，请检查补偿状态"
+    }
+  }
+}

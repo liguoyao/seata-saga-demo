@@ -1,0 +1,14 @@
+### 正常执行
+POST http://127.0.0.1:8081/api/saga-faults/SUCCESS
+
+### 正向业务异常，触发补偿
+POST http://127.0.0.1:8081/api/saga-faults/FORWARD_EXCEPTION
+
+### 模拟读取超时异常（并非真实网络延迟）
+POST http://127.0.0.1:8081/api/saga-faults/READ_TIMEOUT
+
+### 模拟连接失败异常（并非真实网络连接）
+POST http://127.0.0.1:8081/api/saga-faults/CONNECT_FAILURE
+
+### 正向失败后，已执行节点的补偿也抛异常
+POST http://127.0.0.1:8081/api/saga-faults/COMPENSATION_EXCEPTION
