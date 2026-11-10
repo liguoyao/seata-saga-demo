@@ -1,0 +1,102 @@
+{
+  "Name": "couponSaga",
+  "Comment": "可选优惠券：校验、核销、确认；父流程失败时通过 CompensateSubMachine 退券",
+  "Version": "1.0.0",
+  "StartState": "HasCoupon",
+  "IsRetryPersistModeUpdate": false,
+  "IsCompensatePersistModeUpdate": false,
+  "States": {
+    "HasCoupon": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Expression": "[couponCode] != ''",
+          "Next": "ValidateCoupon"
+        }
+      ],
+      "Default": "Succeed"
+    },
+    "ValidateCoupon": {
+      "Type": "ServiceTask",
+      "ServiceName": "couponAction",
+      "ServiceMethod": "validate",
+      "Input": [
+        "$.[couponCode]"
+      ],
+      "Catch": [
+        {
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "RedeemCoupon"
+    },
+    "RedeemCoupon": {
+      "Type": "ServiceTask",
+      "ServiceName": "couponAction",
+      "ServiceMethod": "redeem",
+      "CompensateState": "ReleaseCoupon",
+      "IsForUpdate": true,
+      "IsPersist": true,
+      "Input": [
+        "$.[orderNo]",
+        "$.[couponCode]",
+        "$.[amountCents]"
+      ],
+      "Output": {
+        "payableCents": "$.#root"
+      },
+      "Catch": [
+        {
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "ConfirmCoupon"
+    },
+    "ConfirmCoupon": {
+      "Type": "ServiceTask",
+      "ServiceName": "couponAction",
+      "ServiceMethod": "confirm",
+      "Input": [
+        "$.[orderNo]",
+        "$.[failAt]"
+      ],
+      "Catch": [
+        {
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "Succeed"
+    },
+    "ReleaseCoupon": {
+      "Type": "ServiceTask",
+      "ServiceName": "couponAction",
+      "ServiceMethod": "release",
+      "Input": [
+        "$.[orderNo]",
+        "$.[couponCode]",
+        "$.[amountCents]"
+      ]
+    },
+    "CompensationTrigger": {
+      "Type": "CompensationTrigger",
+      "Next": "Fail"
+    },
+    "Succeed": {
+      "Type": "Succeed"
+    },
+    "Fail": {
+      "Type": "Fail",
+      "ErrorCode": "COUPON_FAILED",
+      "Message": "优惠券子流程失败"
+    }
+  }
+}

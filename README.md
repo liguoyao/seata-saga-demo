@@ -1,8 +1,10 @@
 # Seata Saga Demo（Spring Boot 4.0.7 + Seata 2.6.0）
 
-这是一个用于学习 Seata Saga 状态机模式的可运行示例项目。场景是电商下单：**创建订单 → 扣减库存 → 支付 → 将订单改为已支付**。任一正向节点失败时，状态机根据已经成功的节点逆序调用补偿动作。
+这是一个用于学习 Seata Saga 状态机模式的可运行示例项目。场景是电商下单：**创建订单 → 扣减库存 → 优惠券子状态机 → Choice 判断实付金额 → 支付或零元完成**。任一正向节点失败时，状态机根据已经成功的节点逆序调用补偿动作。
 
 项目把三个业务模块拆成三个独立 Spring Boot 服务，使用三个独立 MySQL Schema；状态机由 `order-service` 发起和编排。
+
+新增的 Choice 零元分支及优惠券子状态机：见 [使用说明与补偿场景](docs/choice-coupon.md)。已有库先执行 `scripts/coupon-migration.sql`。
 
 ## 1. 技术栈
 
@@ -53,18 +55,20 @@ Saga 不是把三个服务包进一个跨库数据库事务，也不是依靠 un
 
 ```mermaid
 flowchart TD
-    A[CreateOrder\n创建订单] --> B[DeductInventory\n扣减库存]
-    B --> C[PayOrder\n支付]
-    C --> D[MarkOrderPaid\n订单标记 PAID]
-    D --> E[Succeed]
-
-    B -. 失败 .-> X[CompensationTrigger]
-    C -. 失败 .-> X
-    D -. 失败 .-> X
-    X --> R1[RefundPayment]
-    R1 --> R2[RestoreInventory]
-    R2 --> R3[CancelOrder]
-    R3 --> F[Fail]
+    A[创建订单] --> B[扣库存]
+    B --> C[优惠券子状态机]
+    C --> R{子流程成功?}
+    R -- 否 --> X[逆序补偿]
+    R -- 是 --> D{Choice: 实付金额}
+    D -- 大于0 --> P[支付]
+    P --> U[标记 PAID]
+    D -- 等于0 --> Z[标记 COMPLETED]
+    U --> S[成功]
+    Z --> S
+    P -. 异常 .-> X
+    U -. 异常 .-> X
+    Z -. 异常 .-> X
+    X --> F[失败]
 ```
 
 例如：支付已经成功，但最后更新订单为 `PAID` 失败时，状态机不会“回滚 MySQL 事务”，而是依次调用：
@@ -247,7 +251,7 @@ curl -X POST http://127.0.0.1:8081/api/orders/checkout \
 
 预期：订单创建、库存扣减、支付都已提交；最后更新订单为 `PAID` 时故意抛错；状态机依次执行 `RefundPayment → RestoreInventory → CancelOrder`。最终订单 `CANCELLED`、库存恢复、支付流水 `REFUNDED`。
 
-`failAt` 只用于学习和演示，允许值：`NONE`、`INVENTORY`、`PAYMENT`、`ORDER_UPDATE`。
+`failAt` 只用于学习和演示，允许值：`NONE`、`INVENTORY`、`PAYMENT`、`ORDER_UPDATE`、`COUPON`。
 
 也可以使用 IntelliJ IDEA HTTP Client 打开 `scripts/demo-requests.http`，依次执行 4 个场景，再查询订单、库存和支付流水。
 

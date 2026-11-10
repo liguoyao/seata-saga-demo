@@ -42,12 +42,14 @@ public class OrderSagaService {
         startParams.put("quantity", request.quantity());
         startParams.put("amountCents", request.amountCents());
         startParams.put("failAt", failAt);
+        startParams.put("couponCode", request.couponCode() == null ? "" : request.couponCode().trim());
+        startParams.put("payableCents", request.amountCents());
 
         log.info("============================================================");
         log.info("[SAGA][START] stateMachine={}, businessKey={}, params={}",
                 STATE_MACHINE_NAME, request.orderNo(), startParams);
-        log.info("[SAGA][FLOW] CreateOrder -> DeductInventory -> PayOrder -> MarkOrderPaid -> Succeed");
-        log.info("[SAGA][COMPENSATION] 失败时按成功节点的逆序执行 RefundPayment -> RestoreInventory -> CancelOrder");
+        log.info("[SAGA][FLOW] CreateOrder -> DeductInventory -> CouponSubMachine -> PaymentChoice -> 支付或零元完成");
+        log.info("[SAGA][COMPENSATION] 失败时逆序执行退款（如有）、优惠券子状态机退券、恢复库存、取消订单");
 
         String instanceId = null;
         String engineError = null;
@@ -70,7 +72,7 @@ public class OrderSagaService {
                        status AS saga_status,
                        compensation_status AS compensation_status
                   FROM seata_state_machine_inst
-                 WHERE business_key=? AND tenant_id=?
+                 WHERE business_key=? AND tenant_id=? AND parent_id IS NULL
                  ORDER BY gmt_started DESC
                  LIMIT 1
                 """, request.orderNo(), TENANT_ID);
@@ -89,7 +91,7 @@ public class OrderSagaService {
         boolean success = "SU".equalsIgnoreCase(status);
         String message;
         if (success) {
-            message = "Saga 执行成功，订单、库存、支付均完成";
+            message = "Saga 执行成功，订单已完成（实付为零时跳过支付）";
         } else if ("SU".equalsIgnoreCase(compensationStatus)) {
             message = "正向流程失败，补偿流程已成功完成，业务数据已回滚到可接受状态";
         } else if (engineError != null) {
@@ -115,16 +117,19 @@ public class OrderSagaService {
         if (request.quantity() == null || request.quantity() <= 0) {
             throw new IllegalArgumentException("quantity 必须大于 0");
         }
-        if (request.amountCents() == null || request.amountCents() <= 0) {
-            throw new IllegalArgumentException("amountCents 必须大于 0");
+        if (request.amountCents() == null || request.amountCents() < 0) {
+            throw new IllegalArgumentException("amountCents 必须大于或等于 0");
+        }
+        if (request.couponCode() != null && request.couponCode().trim().length() > 48) {
+            throw new IllegalArgumentException("couponCode 长度不能超过 48");
         }
     }
 
     private String normalizeFailAt(String failAt) {
         if (failAt == null || failAt.isBlank()) return "NONE";
         String normalized = failAt.trim().toUpperCase(Locale.ROOT);
-        if (!List.of("NONE", "INVENTORY", "PAYMENT", "ORDER_UPDATE").contains(normalized)) {
-            throw new IllegalArgumentException("failAt 仅支持 NONE、INVENTORY、PAYMENT、ORDER_UPDATE");
+        if (!List.of("NONE", "INVENTORY", "PAYMENT", "ORDER_UPDATE", "COUPON").contains(normalized)) {
+            throw new IllegalArgumentException("failAt 仅支持 NONE、INVENTORY、PAYMENT、ORDER_UPDATE、COUPON");
         }
         return normalized;
     }

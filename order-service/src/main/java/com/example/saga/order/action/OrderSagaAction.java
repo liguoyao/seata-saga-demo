@@ -105,4 +105,22 @@ public class OrderSagaAction {
                 "SELECT status FROM t_order WHERE order_no=?", orderNo);
         return rows.isEmpty() ? null : String.valueOf(rows.get(0).get("status"));
     }
+
+    /** 支付分支和零元分支汇总：订单金额保存最终实付金额。 */
+    @Transactional
+    public boolean complete(String orderNo, Long payableCents, String failAt) {
+        if ("ORDER_UPDATE".equalsIgnoreCase(failAt)) {
+            throw new IllegalStateException("模拟订单状态更新失败");
+        }
+        String status = payableCents == 0 ? "COMPLETED" : "PAID";
+        int updated = jdbcTemplate.update("""
+                UPDATE t_order SET amount_cents=?, status=?, updated_at=CURRENT_TIMESTAMP(3)
+                 WHERE order_no=? AND status='PENDING'
+                """, payableCents, status, orderNo);
+        if (updated == 0 && !status.equals(findStatus(orderNo))) {
+            throw new IllegalStateException("订单无法完成：" + orderNo);
+        }
+        log.info("[ORDER][COMPLETE] orderNo={}, payableCents={}, status={}", orderNo, payableCents, status);
+        return true;
+    }
 }

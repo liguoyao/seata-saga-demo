@@ -1,7 +1,7 @@
 {
   "Name": "placeOrderSaga",
-  "Comment": "下单 Saga：创建订单 -> 扣库存 -> 支付 -> 标记订单已支付；失败时按成功节点逆序补偿",
-  "Version": "1.0.0",
+  "Comment": "创建订单、扣库存、优惠券子流程、按实付金额选择支付或零元完成；异常逆序补偿",
+  "Version": "2.0.0",
   "StartState": "CreateOrder",
   "IsRetryPersistModeUpdate": false,
   "IsCompensatePersistModeUpdate": false,
@@ -21,7 +21,9 @@
       ],
       "Catch": [
         {
-          "Exceptions": ["java.lang.Throwable"],
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
           "Next": "CompensationTrigger"
         }
       ],
@@ -31,7 +33,9 @@
       "Type": "ServiceTask",
       "ServiceName": "orderAction",
       "ServiceMethod": "cancelOrder",
-      "Input": ["$.[orderNo]"]
+      "Input": [
+        "$.[orderNo]"
+      ]
     },
     "DeductInventory": {
       "Type": "ServiceTask",
@@ -48,11 +52,13 @@
       ],
       "Catch": [
         {
-          "Exceptions": ["java.lang.Throwable"],
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
           "Next": "CompensationTrigger"
         }
       ],
-      "Next": "PayOrder"
+      "Next": "CouponSubMachine"
     },
     "RestoreInventory": {
       "Type": "ServiceTask",
@@ -73,12 +79,14 @@
       "IsPersist": true,
       "Input": [
         "$.[orderNo]",
-        "$.[amountCents]",
+        "$.[payableCents]",
         "$.[failAt]"
       ],
       "Catch": [
         {
-          "Exceptions": ["java.lang.Throwable"],
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
           "Next": "CompensationTrigger"
         }
       ],
@@ -90,26 +98,30 @@
       "ServiceMethod": "refund",
       "Input": [
         "$.[orderNo]",
-        "$.[amountCents]"
+        "$.[payableCents]"
       ]
     },
     "MarkOrderPaid": {
       "Type": "ServiceTask",
       "ServiceName": "orderAction",
-      "ServiceMethod": "markPaid",
+      "ServiceMethod": "complete",
       "IsForUpdate": true,
       "IsPersist": true,
       "Input": [
         "$.[orderNo]",
+        "$.[payableCents]",
         "$.[failAt]"
       ],
       "Catch": [
         {
-          "Exceptions": ["java.lang.Throwable"],
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
           "Next": "CompensationTrigger"
         }
       ],
-      "Next": "Succeed"
+      "Next": "Succeed",
+      "CompensateState": "CancelOrder"
     },
     "CompensationTrigger": {
       "Type": "CompensationTrigger",
@@ -122,6 +134,84 @@
       "Type": "Fail",
       "ErrorCode": "ORDER_SAGA_FAILED",
       "Message": "订单 Saga 执行失败，已触发逆序补偿"
+    },
+    "CouponSubMachine": {
+      "Type": "SubStateMachine",
+      "StateMachineName": "couponSaga",
+      "CompensateState": "CompensateCoupon",
+      "IsForUpdate": true,
+      "IsPersist": true,
+      "Input": [
+        {
+          "orderNo": "$.[orderNo]",
+          "couponCode": "$.[couponCode]",
+          "amountCents": "$.[amountCents]",
+          "payableCents": "$.[payableCents]",
+          "failAt": "$.[failAt]"
+        }
+      ],
+      "Output": {
+        "payableCents": "$.[payableCents]",
+        "couponStatus": "$.[_sub_statemachine_execution_status_]"
+      },
+      "Catch": [
+        {
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "CouponResultChoice"
+    },
+    "CompensateCoupon": {
+      "Type": "CompensateSubMachine"
+    },
+    "PaymentChoice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Expression": "[payableCents] > 0",
+          "Next": "PayOrder"
+        },
+        {
+          "Expression": "[payableCents] == 0",
+          "Next": "CompleteFreeOrder"
+        }
+      ],
+      "Default": "CompensationTrigger"
+    },
+    "CompleteFreeOrder": {
+      "Type": "ServiceTask",
+      "ServiceName": "orderAction",
+      "ServiceMethod": "complete",
+      "IsForUpdate": true,
+      "IsPersist": true,
+      "Input": [
+        "$.[orderNo]",
+        "$.[payableCents]",
+        "$.[failAt]"
+      ],
+      "Catch": [
+        {
+          "Exceptions": [
+            "java.lang.Throwable"
+          ],
+          "Next": "CompensationTrigger"
+        }
+      ],
+      "Next": "Succeed",
+      "CompensateState": "CancelOrder"
+    },
+    "CouponResultChoice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Expression": "[couponStatus] == 'SU'",
+          "Next": "PaymentChoice"
+        }
+      ],
+      "Default": "CompensationTrigger"
     }
   }
 }

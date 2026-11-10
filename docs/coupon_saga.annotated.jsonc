@@ -1,0 +1,102 @@
+{ // 开始状态机、规则或参数对象
+  "Name": "couponSaga", // 状态机名称，供引擎启动或父状态机引用
+  "Comment": "可选优惠券：校验、核销、确认；父流程失败时通过 CompensateSubMachine 退券", // 流程描述
+  "Version": "1.0.0", // 状态机定义版本号
+  "StartState": "HasCoupon", // 流程入口，值为第一个执行的节点名称
+  "IsRetryPersistModeUpdate": false, // 重试持久化使用新增记录模式，而非更新原记录；并非关闭重试
+  "IsCompensatePersistModeUpdate": false, // 补偿持久化使用新增记录模式，而非更新原记录；并非关闭补偿
+  "States": { // 所有节点的集合；执行顺序由 Next 等字段决定
+    "HasCoupon": { // 判断是否传券；未传则直接成功
+      "Type": "Choice", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "Choices": [ // 条件分支列表，依次匹配第一个成立的条件
+        { // 开始状态机、规则或参数对象
+          "Expression": "[couponCode] != ''", // SpringEL 条件，读取当前状态机上下文
+          "Next": "ValidateCoupon" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Default": "Succeed" // 条件都不匹配时进入的节点
+    }, // 结束当前对象或数组
+    "ValidateCoupon": { // 检查优惠券是否存在
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "couponAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "validate", // 需要调用的 Java 方法名称
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[couponCode]" // 从上下文取值作为此位置的参数：$.[couponCode]
+      ], // 结束当前对象或数组
+      "Catch": [ // 异常捕获规则列表，命中后进入规则指定的 Next 节点
+        { // 开始状态机、规则或参数对象
+          "Exceptions": [ // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
+            "java.lang.Throwable" // 匹配 Throwable 及其子类异常
+          ], // 结束当前对象或数组
+          "Next": "CompensationTrigger" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Next": "RedeemCoupon" // 当前任务完成或条件命中后流转到的节点
+    }, // 结束当前对象或数组
+    "RedeemCoupon": { // 事务内核销优惠券，返回实付金额
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "couponAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "redeem", // 需要调用的 Java 方法名称
+      "CompensateState": "ReleaseCoupon", // 该任务对应的补偿节点
+      "IsForUpdate": true, // 标记任务会修改业务数据；不是 SELECT FOR UPDATE，也不自动加数据库锁
+      "IsPersist": true, // 持久化此节点的执行记录，用于状态查询和恢复
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[couponCode]", // 从上下文取值作为此位置的参数：$.[couponCode]
+        "$.[amountCents]" // 从上下文取值作为此位置的参数：$.[amountCents]
+      ], // 结束当前对象或数组
+      "Output": { // 将返回结果映射到当前状态机上下文
+        "payableCents": "$.#root" // 优惠后实付金额；$.#root 为方法完整返回值，$.[payableCents] 为子流程输出字段
+      }, // 结束当前对象或数组
+      "Catch": [ // 异常捕获规则列表，命中后进入规则指定的 Next 节点
+        { // 开始状态机、规则或参数对象
+          "Exceptions": [ // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
+            "java.lang.Throwable" // 匹配 Throwable 及其子类异常
+          ], // 结束当前对象或数组
+          "Next": "CompensationTrigger" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Next": "ConfirmCoupon" // 当前任务完成或条件命中后流转到的节点
+    }, // 结束当前对象或数组
+    "ConfirmCoupon": { // 核销后确认，COUPON 故障点可触发子流程补偿
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "couponAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "confirm", // 需要调用的 Java 方法名称
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[failAt]" // 从上下文取值作为此位置的参数：$.[failAt]
+      ], // 结束当前对象或数组
+      "Catch": [ // 异常捕获规则列表，命中后进入规则指定的 Next 节点
+        { // 开始状态机、规则或参数对象
+          "Exceptions": [ // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
+            "java.lang.Throwable" // 匹配 Throwable 及其子类异常
+          ], // 结束当前对象或数组
+          "Next": "CompensationTrigger" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Next": "Succeed" // 当前任务完成或条件命中后流转到的节点
+    }, // 结束当前对象或数组
+    "ReleaseCoupon": { // 退券补偿：幂等、空补偿及防悬挂
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "couponAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "release", // 需要调用的 Java 方法名称
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[couponCode]", // 从上下文取值作为此位置的参数：$.[couponCode]
+        "$.[amountCents]" // 从上下文取值作为此位置的参数：$.[amountCents]
+      ] // 结束当前对象或数组
+    }, // 结束当前对象或数组
+    "CompensationTrigger": { // 补偿触发节点：由引擎调度需要补偿的动作，通常按正向执行的逆序处理
+      "Type": "CompensationTrigger", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "Next": "Fail" // 当前任务完成或条件命中后流转到的节点
+    }, // 结束当前对象或数组
+    "Succeed": { // 成功终态节点
+      "Type": "Succeed" // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+    }, // 结束当前对象或数组
+    "Fail": { // 失败终态节点
+      "Type": "Fail", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ErrorCode": "COUPON_FAILED", // 流程失败时记录的业务错误码
+      "Message": "优惠券子流程失败" // 失败描述文案；不能据此认定所有补偿已经成功完成
+    } // 结束当前对象或数组
+  } // 结束当前对象或数组
+} // 结束当前对象或数组

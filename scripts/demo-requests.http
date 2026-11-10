@@ -56,3 +56,55 @@ GET http://127.0.0.1:8082/api/inventory/SKU-1001
 
 ###
 GET http://127.0.0.1:8083/api/payments/SAGA-20261109-HTTP-004
+
+### 零元订单：不传券，跳过支付，最终 COMPLETED
+POST http://localhost:8081/api/orders/checkout
+Content-Type: application/json
+
+{
+  "orderNo": "{{orderNo}}",
+  "productId": "SKU-1001",
+  "quantity": 1,
+  "amountCents": 0,
+  "failAt": "NONE"
+}
+
+### 优惠券子状态机：1000 分减 500 分，实际支付 500 分
+POST http://localhost:8081/api/orders/checkout
+Content-Type: application/json
+
+{
+  "orderNo": "{{orderNo}}",
+  "productId": "SKU-1001",
+  "quantity": 1,
+  "amountCents": 1000,
+  "couponCode": "SAVE500",
+  "failAt": "NONE"
+}
+
+### 优惠后零元：跳过支付，优惠券仍核销
+POST http://localhost:8081/api/orders/checkout
+Content-Type: application/json
+
+{
+  "orderNo": "{{orderNo}}",
+  "productId": "SKU-1001",
+  "quantity": 1,
+  "amountCents": 700,
+  "couponCode": "FREE1000",
+  "failAt": "NONE"
+}
+
+### 在全新示例券上测试子流程补偿；请先执行此例，再测试上面的成功核销
+POST http://localhost:8081/api/orders/checkout
+Content-Type: application/json
+
+{
+  "orderNo": "{{orderNo}}",
+  "productId": "SKU-1001",
+  "quantity": 1,
+  "amountCents": 1000,
+  "couponCode": "SAVE500",
+  "failAt": "COUPON"
+}
+

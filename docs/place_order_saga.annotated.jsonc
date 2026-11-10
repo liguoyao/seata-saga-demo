@@ -1,127 +1,217 @@
-{ // 开始定义下单 Saga 状态机
-  "Name": "placeOrderSaga", // 状态机名称，启动时用 placeOrderSaga 查找流程
-  "Comment": "下单 Saga：创建订单 -> 扣库存 -> 支付 -> 标记订单已支付；失败时按成功节点逆序补偿", // 流程说明文字，不执行业务动作
-  "Version": "1.0.0", // 状态机定义版本号
-  "StartState": "CreateOrder", // 流程入口，从 CreateOrder 开始执行
+{ // 开始状态机、规则或参数对象
+  "Name": "placeOrderSaga", // 状态机名称，供引擎启动或父状态机引用
+  "Comment": "创建订单、扣库存、优惠券子流程、按实付金额选择支付或零元完成；异常逆序补偿", // 流程描述
+  "Version": "2.0.0", // 状态机定义版本号
+  "StartState": "CreateOrder", // 流程入口，值为第一个执行的节点名称
   "IsRetryPersistModeUpdate": false, // 重试持久化使用新增记录模式，而非更新原记录；并非关闭重试
   "IsCompensatePersistModeUpdate": false, // 补偿持久化使用新增记录模式，而非更新原记录；并非关闭补偿
   "States": { // 所有节点的集合；执行顺序由 Next 等字段决定
     "CreateOrder": { // 正向节点：创建订单
-      "Type": "ServiceTask", // 服务任务：调用指定 Spring Bean 的方法
-      "ServiceName": "orderAction", // 要调用的 Spring Bean 名称：orderAction
-      "ServiceMethod": "createOrder", // 要调用的 Java 方法名：createOrder
-      "CompensateState": "CancelOrder", // 当前正向任务对应的补偿节点：CancelOrder；补偿时由引擎调度
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "orderAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "createOrder", // 需要调用的 Java 方法名称
+      "CompensateState": "CancelOrder", // 该任务对应的补偿节点
       "IsForUpdate": true, // 标记任务会修改业务数据；不是 SELECT FOR UPDATE，也不自动加数据库锁
       "IsPersist": true, // 持久化此节点的执行记录，用于状态查询和恢复
-      "Input": [ // 方法实参列表，数组顺序必须与 Java 方法参数顺序一致
-        "$.[orderNo]", // 从 Saga 上下文读取 orderNo：订单号，用于业务定位和幂等处理
-        "$.[productId]", // 从 Saga 上下文读取 productId：商品编号
-        "$.[quantity]", // 从 Saga 上下文读取 quantity：购买数量
-        "$.[amountCents]" // 从 Saga 上下文读取 amountCents：金额，单位为分
-      ], // 结束 Input
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[productId]", // 从上下文取值作为此位置的参数：$.[productId]
+        "$.[quantity]", // 从上下文取值作为此位置的参数：$.[quantity]
+        "$.[amountCents]" // 从上下文取值作为此位置的参数：$.[amountCents]
+      ], // 结束当前对象或数组
       "Catch": [ // 异常捕获规则列表，命中后进入规则指定的 Next 节点
-        { // 开始一条异常匹配规则
-          "Exceptions": ["java.lang.Throwable"], // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
-          "Next": "CompensationTrigger" // 异常命中后跳转到 CompensationTrigger
-        } // 结束 异常规则
-      ], // 结束 Catch
-      "Next": "DeductInventory" // 本节点完成后流转到 DeductInventory
-    }, // 结束 CreateOrder
+        { // 开始状态机、规则或参数对象
+          "Exceptions": [ // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
+            "java.lang.Throwable" // 匹配 Throwable 及其子类异常
+          ], // 结束当前对象或数组
+          "Next": "CompensationTrigger" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Next": "DeductInventory" // 当前任务完成或条件命中后流转到的节点
+    }, // 结束当前对象或数组
     "CancelOrder": { // 补偿节点：取消订单，对应 CreateOrder
-      "Type": "ServiceTask", // 服务任务：调用指定 Spring Bean 的方法
-      "ServiceName": "orderAction", // 要调用的 Spring Bean 名称：orderAction
-      "ServiceMethod": "cancelOrder", // 要调用的 Java 方法名：cancelOrder
-      "Input": ["$.[orderNo]"] // 方法参数：从 Saga 上下文读取 orderNo（订单号）
-    }, // 结束 CancelOrder
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "orderAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "cancelOrder", // 需要调用的 Java 方法名称
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]" // 从上下文取值作为此位置的参数：$.[orderNo]
+      ] // 结束当前对象或数组
+    }, // 结束当前对象或数组
     "DeductInventory": { // 正向节点：扣减库存
-      "Type": "ServiceTask", // 服务任务：调用指定 Spring Bean 的方法
-      "ServiceName": "inventoryAction", // 要调用的 Spring Bean 名称：inventoryAction
-      "ServiceMethod": "deduct", // 要调用的 Java 方法名：deduct
-      "CompensateState": "RestoreInventory", // 当前正向任务对应的补偿节点：RestoreInventory；补偿时由引擎调度
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "inventoryAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "deduct", // 需要调用的 Java 方法名称
+      "CompensateState": "RestoreInventory", // 该任务对应的补偿节点
       "IsForUpdate": true, // 标记任务会修改业务数据；不是 SELECT FOR UPDATE，也不自动加数据库锁
       "IsPersist": true, // 持久化此节点的执行记录，用于状态查询和恢复
-      "Input": [ // 方法实参列表，数组顺序必须与 Java 方法参数顺序一致
-        "$.[orderNo]", // 从 Saga 上下文读取 orderNo：订单号，用于业务定位和幂等处理
-        "$.[productId]", // 从 Saga 上下文读取 productId：商品编号
-        "$.[quantity]", // 从 Saga 上下文读取 quantity：购买数量
-        "$.[failAt]" // 从 Saga 上下文读取 failAt：模拟故障位置，用于演示失败补偿
-      ], // 结束 Input
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[productId]", // 从上下文取值作为此位置的参数：$.[productId]
+        "$.[quantity]", // 从上下文取值作为此位置的参数：$.[quantity]
+        "$.[failAt]" // 从上下文取值作为此位置的参数：$.[failAt]
+      ], // 结束当前对象或数组
       "Catch": [ // 异常捕获规则列表，命中后进入规则指定的 Next 节点
-        { // 开始一条异常匹配规则
-          "Exceptions": ["java.lang.Throwable"], // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
-          "Next": "CompensationTrigger" // 异常命中后跳转到 CompensationTrigger
-        } // 结束 异常规则
-      ], // 结束 Catch
-      "Next": "PayOrder" // 本节点完成后流转到 PayOrder
-    }, // 结束 DeductInventory
+        { // 开始状态机、规则或参数对象
+          "Exceptions": [ // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
+            "java.lang.Throwable" // 匹配 Throwable 及其子类异常
+          ], // 结束当前对象或数组
+          "Next": "CompensationTrigger" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Next": "CouponSubMachine" // 当前任务完成或条件命中后流转到的节点
+    }, // 结束当前对象或数组
     "RestoreInventory": { // 补偿节点：恢复库存，对应 DeductInventory
-      "Type": "ServiceTask", // 服务任务：调用指定 Spring Bean 的方法
-      "ServiceName": "inventoryAction", // 要调用的 Spring Bean 名称：inventoryAction
-      "ServiceMethod": "restore", // 要调用的 Java 方法名：restore
-      "Input": [ // 方法实参列表，数组顺序必须与 Java 方法参数顺序一致
-        "$.[orderNo]", // 从 Saga 上下文读取 orderNo：订单号，用于业务定位和幂等处理
-        "$.[productId]", // 从 Saga 上下文读取 productId：商品编号
-        "$.[quantity]" // 从 Saga 上下文读取 quantity：购买数量
-      ] // 结束 Input
-    }, // 结束 RestoreInventory
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "inventoryAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "restore", // 需要调用的 Java 方法名称
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[productId]", // 从上下文取值作为此位置的参数：$.[productId]
+        "$.[quantity]" // 从上下文取值作为此位置的参数：$.[quantity]
+      ] // 结束当前对象或数组
+    }, // 结束当前对象或数组
     "PayOrder": { // 正向节点：执行支付
-      "Type": "ServiceTask", // 服务任务：调用指定 Spring Bean 的方法
-      "ServiceName": "paymentAction", // 要调用的 Spring Bean 名称：paymentAction
-      "ServiceMethod": "pay", // 要调用的 Java 方法名：pay
-      "CompensateState": "RefundPayment", // 当前正向任务对应的补偿节点：RefundPayment；补偿时由引擎调度
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "paymentAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "pay", // 需要调用的 Java 方法名称
+      "CompensateState": "RefundPayment", // 该任务对应的补偿节点
       "IsForUpdate": true, // 标记任务会修改业务数据；不是 SELECT FOR UPDATE，也不自动加数据库锁
       "IsPersist": true, // 持久化此节点的执行记录，用于状态查询和恢复
-      "Input": [ // 方法实参列表，数组顺序必须与 Java 方法参数顺序一致
-        "$.[orderNo]", // 从 Saga 上下文读取 orderNo：订单号，用于业务定位和幂等处理
-        "$.[amountCents]", // 从 Saga 上下文读取 amountCents：金额，单位为分
-        "$.[failAt]" // 从 Saga 上下文读取 failAt：模拟故障位置，用于演示失败补偿
-      ], // 结束 Input
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[payableCents]", // 从上下文取值作为此位置的参数：$.[payableCents]
+        "$.[failAt]" // 从上下文取值作为此位置的参数：$.[failAt]
+      ], // 结束当前对象或数组
       "Catch": [ // 异常捕获规则列表，命中后进入规则指定的 Next 节点
-        { // 开始一条异常匹配规则
-          "Exceptions": ["java.lang.Throwable"], // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
-          "Next": "CompensationTrigger" // 异常命中后跳转到 CompensationTrigger
-        } // 结束 异常规则
-      ], // 结束 Catch
-      "Next": "MarkOrderPaid" // 本节点完成后流转到 MarkOrderPaid
-    }, // 结束 PayOrder
+        { // 开始状态机、规则或参数对象
+          "Exceptions": [ // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
+            "java.lang.Throwable" // 匹配 Throwable 及其子类异常
+          ], // 结束当前对象或数组
+          "Next": "CompensationTrigger" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Next": "MarkOrderPaid" // 当前任务完成或条件命中后流转到的节点
+    }, // 结束当前对象或数组
     "RefundPayment": { // 补偿节点：退款，对应 PayOrder
-      "Type": "ServiceTask", // 服务任务：调用指定 Spring Bean 的方法
-      "ServiceName": "paymentAction", // 要调用的 Spring Bean 名称：paymentAction
-      "ServiceMethod": "refund", // 要调用的 Java 方法名：refund
-      "Input": [ // 方法实参列表，数组顺序必须与 Java 方法参数顺序一致
-        "$.[orderNo]", // 从 Saga 上下文读取 orderNo：订单号，用于业务定位和幂等处理
-        "$.[amountCents]" // 从 Saga 上下文读取 amountCents：金额，单位为分
-      ] // 结束 Input
-    }, // 结束 RefundPayment
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "paymentAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "refund", // 需要调用的 Java 方法名称
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[payableCents]" // 从上下文取值作为此位置的参数：$.[payableCents]
+      ] // 结束当前对象或数组
+    }, // 结束当前对象或数组
     "MarkOrderPaid": { // 正向节点：将订单标记为 PAID
-      "Type": "ServiceTask", // 服务任务：调用指定 Spring Bean 的方法
-      "ServiceName": "orderAction", // 要调用的 Spring Bean 名称：orderAction
-      "ServiceMethod": "markPaid", // 要调用的 Java 方法名：markPaid
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "orderAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "complete", // 需要调用的 Java 方法名称
       "IsForUpdate": true, // 标记任务会修改业务数据；不是 SELECT FOR UPDATE，也不自动加数据库锁
       "IsPersist": true, // 持久化此节点的执行记录，用于状态查询和恢复
-      "Input": [ // 方法实参列表，数组顺序必须与 Java 方法参数顺序一致
-        "$.[orderNo]", // 从 Saga 上下文读取 orderNo：订单号，用于业务定位和幂等处理
-        "$.[failAt]" // 从 Saga 上下文读取 failAt：模拟故障位置，用于演示失败补偿
-      ], // 结束 Input
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[payableCents]", // 从上下文取值作为此位置的参数：$.[payableCents]
+        "$.[failAt]" // 从上下文取值作为此位置的参数：$.[failAt]
+      ], // 结束当前对象或数组
       "Catch": [ // 异常捕获规则列表，命中后进入规则指定的 Next 节点
-        { // 开始一条异常匹配规则
-          "Exceptions": ["java.lang.Throwable"], // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
-          "Next": "CompensationTrigger" // 异常命中后跳转到 CompensationTrigger
-        } // 结束 异常规则
-      ], // 结束 Catch
-      "Next": "Succeed" // 本节点完成后流转到 Succeed
-    }, // 结束 MarkOrderPaid
+        { // 开始状态机、规则或参数对象
+          "Exceptions": [ // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
+            "java.lang.Throwable" // 匹配 Throwable 及其子类异常
+          ], // 结束当前对象或数组
+          "Next": "CompensationTrigger" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Next": "Succeed", // 当前任务完成或条件命中后流转到的节点
+      "CompensateState": "CancelOrder" // 该任务对应的补偿节点
+    }, // 结束当前对象或数组
     "CompensationTrigger": { // 补偿触发节点：由引擎调度需要补偿的动作，通常按正向执行的逆序处理
-      "Type": "CompensationTrigger", // 触发引擎执行补偿流程
-      "Next": "Fail" // 本节点完成后流转到 Fail
-    }, // 结束 CompensationTrigger
+      "Type": "CompensationTrigger", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "Next": "Fail" // 当前任务完成或条件命中后流转到的节点
+    }, // 结束当前对象或数组
     "Succeed": { // 成功终态节点
-      "Type": "Succeed" // 以成功状态结束流程
-    }, // 结束 Succeed
+      "Type": "Succeed" // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+    }, // 结束当前对象或数组
     "Fail": { // 失败终态节点
-      "Type": "Fail", // 以失败状态结束流程
+      "Type": "Fail", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
       "ErrorCode": "ORDER_SAGA_FAILED", // 流程失败时记录的业务错误码
       "Message": "订单 Saga 执行失败，已触发逆序补偿" // 失败描述文案；不能据此认定所有补偿已经成功完成
-    } // 结束 Fail
-  } // 结束 States
-} // 结束 状态机
+    }, // 结束当前对象或数组
+    "CouponSubMachine": { // 调用优惠券子状态机；不设置 BusinessKey，避免与父实例唯一键冲突
+      "Type": "SubStateMachine", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "StateMachineName": "couponSaga", // 被调用的子状态机名称
+      "CompensateState": "CompensateCoupon", // 该任务对应的补偿节点
+      "IsForUpdate": true, // 标记任务会修改业务数据；不是 SELECT FOR UPDATE，也不自动加数据库锁
+      "IsPersist": true, // 持久化此节点的执行记录，用于状态查询和恢复
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        { // 开始状态机、规则或参数对象
+          "orderNo": "$.[orderNo]", // 业务订单号
+          "couponCode": "$.[couponCode]", // 可选券号，空字符串表示不使用
+          "amountCents": "$.[amountCents]", // 优惠前金额，单位分
+          "payableCents": "$.[payableCents]", // 优惠后实付金额；$.#root 为方法完整返回值，$.[payableCents] 为子流程输出字段
+          "failAt": "$.[failAt]" // 演示故障注入位置
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Output": { // 将返回结果映射到当前状态机上下文
+        "payableCents": "$.[payableCents]", // 优惠后实付金额；$.#root 为方法完整返回值，$.[payableCents] 为子流程输出字段
+        "couponStatus": "$.[_sub_statemachine_execution_status_]" // 读取子流程执行状态，SU 表示成功
+      }, // 结束当前对象或数组
+      "Catch": [ // 异常捕获规则列表，命中后进入规则指定的 Next 节点
+        { // 开始状态机、规则或参数对象
+          "Exceptions": [ // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
+            "java.lang.Throwable" // 匹配 Throwable 及其子类异常
+          ], // 结束当前对象或数组
+          "Next": "CompensationTrigger" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Next": "CouponResultChoice" // 当前任务完成或条件命中后流转到的节点
+    }, // 结束当前对象或数组
+    "CompensateCoupon": { // 调用引擎补偿优惠券子状态机
+      "Type": "CompensateSubMachine" // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+    }, // 结束当前对象或数组
+    "PaymentChoice": { // 按实付金额选择支付或零元完成
+      "Type": "Choice", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "Choices": [ // 条件分支列表，依次匹配第一个成立的条件
+        { // 开始状态机、规则或参数对象
+          "Expression": "[payableCents] > 0", // SpringEL 条件，读取当前状态机上下文
+          "Next": "PayOrder" // 当前任务完成或条件命中后流转到的节点
+        }, // 结束当前对象或数组
+        { // 开始状态机、规则或参数对象
+          "Expression": "[payableCents] == 0", // SpringEL 条件，读取当前状态机上下文
+          "Next": "CompleteFreeOrder" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Default": "CompensationTrigger" // 条件都不匹配时进入的节点
+    }, // 结束当前对象或数组
+    "CompleteFreeOrder": { // 零元分支：不支付，订单标记 COMPLETED
+      "Type": "ServiceTask", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "ServiceName": "orderAction", // 需要调用的 Spring Bean 名称
+      "ServiceMethod": "complete", // 需要调用的 Java 方法名称
+      "IsForUpdate": true, // 标记任务会修改业务数据；不是 SELECT FOR UPDATE，也不自动加数据库锁
+      "IsPersist": true, // 持久化此节点的执行记录，用于状态查询和恢复
+      "Input": [ // 方法实参列表或子状态机输入；顺序必须匹配 Java 方法参数
+        "$.[orderNo]", // 从上下文取值作为此位置的参数：$.[orderNo]
+        "$.[payableCents]", // 从上下文取值作为此位置的参数：$.[payableCents]
+        "$.[failAt]" // 从上下文取值作为此位置的参数：$.[failAt]
+      ], // 结束当前对象或数组
+      "Catch": [ // 异常捕获规则列表，命中后进入规则指定的 Next 节点
+        { // 开始状态机、规则或参数对象
+          "Exceptions": [ // 匹配 Throwable 及其子类，覆盖此任务抛出的异常和错误
+            "java.lang.Throwable" // 匹配 Throwable 及其子类异常
+          ], // 结束当前对象或数组
+          "Next": "CompensationTrigger" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Next": "Succeed", // 当前任务完成或条件命中后流转到的节点
+      "CompensateState": "CancelOrder" // 该任务对应的补偿节点
+    }, // 结束当前对象或数组
+    "CouponResultChoice": { // 检查子流程是否成功；失败进入父流程补偿
+      "Type": "Choice", // 节点类型：任务调用、条件选择、子流程、子流程补偿或终态
+      "Choices": [ // 条件分支列表，依次匹配第一个成立的条件
+        { // 开始状态机、规则或参数对象
+          "Expression": "[couponStatus] == 'SU'", // SpringEL 条件，读取当前状态机上下文
+          "Next": "PaymentChoice" // 当前任务完成或条件命中后流转到的节点
+        } // 结束当前对象或数组
+      ], // 结束当前对象或数组
+      "Default": "CompensationTrigger" // 条件都不匹配时进入的节点
+    } // 结束当前对象或数组
+  } // 结束当前对象或数组
+} // 结束当前对象或数组
